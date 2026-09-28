@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="SafeSteps: explainable first-aid decision support using forward and backward chaining.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%277%27 fill=%27%23b3261e%27/%3E%3Cpath d=%27M13 6h6v7h7v6h-7v7h-6v-7H6v-6h7z%27 fill=%27%23fff%27/%3E%3C/svg%3E">
+<title>SafeSteps: explainable first-aid decision support</title>
+<style>
+:root{--bg:#f4f7f8;--card:#fff;--ink:#12262e;--mute:#546a73;--line:#cdd9de;--red:#b3261e;--redbg:#fdeceb;--teal:#0b6b6f;--amber:#8a5a00;--amberbg:#fff4d9}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#0e191d;--card:#16252b;--ink:#e8f0f2;--mute:#9db2ba;--line:#2c4149;--red:#ff8a80;--redbg:#3a1c1a;--teal:#5fc4c8;--amber:#f2c14e;--amberbg:#3a2f10}}
+*{box-sizing:border-box}
+html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.banner{background:var(--red);color:#fff;padding:.7rem 1rem;font-weight:600;text-align:center}
+@media (prefers-color-scheme:dark){.banner{background:#7a1712}}
+main{max-width:640px;margin:0 auto;padding:1.25rem 1rem 3rem}
+h1{font-size:1.6rem;margin:.5rem 0 .25rem}
+.sub{color:var(--mute);margin:0 0 1.25rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:1.25rem}
+.q{font-size:1.3rem;font-weight:600;margin:0 0 1rem}
+.hint{color:var(--mute);font-size:.95rem;margin:-.5rem 0 1rem}
+.btns{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
+button{font:inherit;font-weight:600;padding:.9rem;border-radius:8px;border:2px solid var(--ink);background:var(--card);color:var(--ink);cursor:pointer}
+button:focus-visible{outline:3px solid var(--teal);outline-offset:2px}
+button.yes{background:var(--ink);color:var(--bg)}
+button.unsure{grid-column:1/3;border-style:dashed;border-color:var(--mute);color:var(--mute);font-weight:500}
+button.link{border:0;background:none;color:var(--teal);text-decoration:underline;padding:.5rem 0;font-weight:500}
+.why{margin-top:.75rem;padding:.75rem 1rem;border-left:4px solid var(--teal);background:var(--bg);font-size:.95rem}
+.why ul{margin:.4rem 0 0;padding-left:1.2rem}
+.result{border:3px solid var(--red)}
+.result.calm{border-color:var(--teal)}
+.result h2{margin:0 0 .25rem;font-size:1.4rem}
+.actions{padding-left:1.3rem;margin:.75rem 0}
+.actions li{margin:.35rem 0;font-size:1.1rem;font-weight:600}
+.tag{display:inline-block;font-size:.85rem;font-weight:600;padding:.1rem .5rem;border-radius:4px;margin-right:.4rem}
+.tag.consider{background:var(--amberbg);color:var(--amber)}
+.warn{background:var(--amberbg);color:var(--amber);padding:.6rem .8rem;border-radius:6px;margin:.75rem 0;font-size:.95rem}
+details{margin-top:1rem}
+summary{cursor:pointer;font-weight:600;color:var(--teal)}
+table{width:100%;border-collapse:collapse;font-size:.92rem;margin-top:.5rem}
+td,th{text-align:left;padding:.35rem .4rem;border-bottom:1px solid var(--line);vertical-align:top}
+.trace li{margin:.25rem 0}
+footer{margin-top:1.5rem;font-size:.88rem;color:var(--mute)}
+</style>
+</head>
+<body>
+<div class="banner" role="alert">In an emergency, call your local emergency number now. This tool does not replace professional care.</div>
+<main>
+<h1>SafeSteps</h1>
+<p class="sub">Answer a few yes/no questions. You will get first-aid steps and the reasons behind them.</p>
+<div id="app"></div>
+<footer>
+Rules adapted from the Australian Red Cross <i>Essential First Aid Guide</i> and the Canadian Red Cross <i>Pocket Guide</i>, ordered by threat to life. Course project, not a medical device. Nothing you enter leaves your browser.
+</footer>
+</main>
+<script>
+// ---------- Knowledge base ----------
+// def = conservative assumption used when the user answers "Not sure"
+const FACTS = {
+  responsive:{q:"Does the person react when you tap their shoulders and speak loudly?",def:false,hint:"Any movement, sound or eye opening counts as yes."},
+  breathing_normal:{q:"Is the person breathing normally?",def:false,hint:"Occasional gasping or snoring sounds are NOT normal breathing."},
+  spinal_suspected:{q:"Could the person have a neck or spine injury (fall, crash, blow to head)?",def:true,hint:"Added by our team: the source guide moves people only if there is no obvious injury."},
+  choking_signs:{q:"Does the person show choking signs (clutching throat, cannot speak, high-pitched sounds)?",def:true},
+  cough_effective:{q:"Can the person cough forcefully?",def:false},
+  severe_bleeding:{q:"Is there severe bleeding (spurting, pooling, soaking through cloth)?",def:true},
+  pressure_controls_bleeding:{q:"Does firm direct pressure on the wound control the bleeding?",def:false,hint:"Press hard with a cloth for a moment, then check."},
+  has_burn:{q:"Does the person have a burn?",def:true},
+  burn_severe:{q:"Is the burn severe (bigger than the person's palm, deep, or on face, hands, genitals or over a joint)?",def:true}
+};
+// Rules in fixed priority order (most life-threatening first)
+const RULES = [
+ {id:"R1",name:"Cardiac arrest",conds:[["responsive",false],["breathing_normal",false]],
+  acts:["Call emergency services","Start chest compressions","Get an Automated External Defibrillator (AED)"],src:"Australian Red Cross Essential First Aid Guide, Cardiac Arrest"},
+ {id:"R2a",name:"Unresponsive but breathing",conds:[["responsive",false],["breathing_normal",true],["spinal_suspected",false]],
+  acts:["Call emergency services","Roll the person onto their side (recovery position)","Keep checking their breathing"],src:"Canadian Red Cross Pocket Guide, Circulation"},
+ {id:"R2b",name:"Unresponsive, breathing, possible spinal injury",conds:[["responsive",false],["breathing_normal",true],["spinal_suspected",true]],
+  acts:["Call emergency services","Do not move the person","Keep their head and neck still and monitor breathing until help arrives"],src:"Team-added safeguard (recovery-position exclusion)"},
+ {id:"R3",name:"Choking",conds:[["responsive",true],["choking_signs",true],["cough_effective",false]],
+  acts:["Call emergency services","Alternate 5 back blows, 5 abdominal thrusts and chest thrusts"],src:"Canadian Red Cross Pocket Guide, Choking"},
+ {id:"R4",name:"Severe bleeding, controlled by pressure",conds:[["severe_bleeding",true],["pressure_controls_bleeding",true]],
+  acts:["Call emergency services","Keep direct pressure on the wound"],src:"Canadian Red Cross Pocket Guide, Life-threatening bleeding"},
+ {id:"R5",name:"Severe bleeding, not controlled by pressure",conds:[["severe_bleeding",true],["pressure_controls_bleeding",false]],
+  acts:["Call emergency services","Apply a tourniquet if you are able to (keep pressing on the wound until it is on)"],strength:"consider",src:"Canadian Red Cross Pocket Guide, Life-threatening bleeding"},
+ {id:"R6",name:"Severe burn",conds:[["has_burn",true],["burn_severe",true]],
+  acts:["Call emergency services","Cool the burn with running water for at least 20 minutes"],src:"Australian Red Cross Essential First Aid Guide, Burns"},
+ {id:"R7",name:"Minor burn",conds:[["has_burn",true],["burn_severe",false]],
+  acts:["Cool the burn with running water for at least 20 minutes"],src:"Australian Red Cross Essential First Aid Guide, Burns"}
+];
+const label=(f,v)=>({responsive:v?"responsive":"not responsive",breathing_normal:v?"breathing normally":"not breathing normally",spinal_suspected:v?"spinal injury possible":"no suspected spinal injury",choking_signs:v?"choking signs":"no choking signs",cough_effective:v?"can cough":"cannot cough",severe_bleeding:v?"severe bleeding":"no severe bleeding",pressure_controls_bleeding:v?"pressure controls bleeding":"pressure does not control bleeding",has_burn:v?"has a burn":"no burn",burn_severe:v?"burn is severe":"burn is not severe"}[f]);
+
+// ---------- Inference engine ----------
+let facts={}, order=[];           // facts[name]={v:bool, assumed:bool}
+// Forward chaining: scan rules by priority. A rule is "fail", "ask" (needs a fact) or "fire".
+function check(rule){
+  for(const [f,val] of rule.conds){
+    if(!(f in facts)) return {s:"ask",fact:f};
+    if(facts[f].v!==val) return {s:"fail",fact:f};
+  }
+  return {s:"fire"};
+}
+function infer(){
+  const ruledOut=[];
+  for(const r of RULES){
+    const c=check(r);
+    if(c.s==="fire") return {fired:r,ruledOut};
+    if(c.s==="ask") return {ask:c.fact,goal:r,ruledOut};
+    ruledOut.push({r,fact:c.fact});
+  }
+  return {none:true,ruledOut};
+}
+function answer(f,a){
+  facts[f]= a==="unsure" ? {v:FACTS[f].def,assumed:true} : {v:a==="yes",assumed:false};
+  order.push(f); render();
+}
+function reset(){facts={};order=[];render();}
+
+// ---------- UI ----------
+const app=document.getElementById("app");
+let showWhy=false;
+const esc=s=>s.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+function traceHTML(res){
+  const facts_li=order.map(f=>`<li>${esc(label(f,facts[f].v))}${facts[f].assumed?' <b>(assumed: you were not sure)</b>':''}</li>`).join("");
+  const out=res.ruledOut.map(o=>`<tr><td>${o.r.id} ${esc(o.r.name)}</td><td>skipped: ${esc(label(o.fact,facts[o.fact].v))}</td></tr>`).join("");
+  return `<details><summary>Why this advice?</summary>
+  <p><b>Facts collected</b></p><ul class="trace">${facts_li}</ul>
+  ${res.fired?`<p><b>Rule fired:</b> ${res.fired.id}, ${esc(res.fired.name)}: IF ${res.fired.conds.map(([f,v])=>esc(label(f,v))).join(" AND ")} THEN act.<br><span class="hint">Source: ${esc(res.fired.src)}</span></p>`:""}
+  ${out?`<p><b>Higher-priority rules checked first</b></p><table>${out}</table>`:""}</details>`;
+}
+function render(){
+  const res=infer();
+  if(res.ask){
+    const f=res.ask,q=FACTS[f];
+    const remaining=res.goal.conds.filter(([n])=>!(n in facts)).map(([n,v])=>esc(label(n,v)));
+    app.innerHTML=`<div class="card"><p class="q" id="q">${esc(q.q)}</p>${q.hint?`<p class="hint">${esc(q.hint)}</p>`:""}
+    <div class="btns" role="group" aria-labelledby="q">
+    <button class="yes" data-a="yes">Yes</button><button data-a="no">No</button>
+    <button class="unsure" data-a="unsure">Not sure</button></div>
+    <button class="link" id="whyBtn" aria-expanded="${showWhy}">Why are you asking this?</button>
+    ${showWhy?`<div class="why"><b>Goal being tested:</b> ${res.goal.id}, ${esc(res.goal.name)}.<br>
+    To prove it I still need: <ul>${remaining.map(x=>`<li>${x}</li>`).join("")}</ul></div>`:""}
+    </div>${order.length?'<button class="link" id="restart">Start over</button>':""}`;
+    app.querySelectorAll("[data-a]").forEach(b=>b.onclick=()=>{showWhy=false;answer(f,b.dataset.a)});
+    document.getElementById("whyBtn").onclick=()=>{showWhy=!showWhy;render()};
+  } else {
+    const r=res.fired, urgent=r&&r.acts[0].startsWith("Call");
+    const assumed=order.filter(f=>facts[f].assumed);
+    app.innerHTML=`<div class="card result ${urgent?"":"calm"}" role="status">
+    ${r?`<h2>${esc(r.name)}</h2><ol class="actions">${r.acts.map(a=>`<li>${r.strength==="consider"&&a.startsWith("Apply")?'<span class="tag consider">consider</span>':""}${esc(a)}</li>`).join("")}</ol>`
+    :`<h2>No matching rule</h2><p>Your answers did not match a known emergency. If you are worried, call emergency services.</p>`}
+    ${assumed.length?`<div class="warn"><b>Assumptions made:</b> ${assumed.map(f=>esc(label(f,facts[f].v))).join("; ")}. The safest option was used because you were not sure.</div>`:""}
+    ${traceHTML(res)}</div>
+    <button class="link" id="restart">Start over</button>`;
+  }
+  const rs=document.getElementById("restart"); if(rs) rs.onclick=reset;
+}
+render();
+</script>
+</body>
+</html>

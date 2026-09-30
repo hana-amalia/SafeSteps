@@ -4,7 +4,7 @@
   "description": "Forward- and backward-chaining first-aid decision support (static site)",
   "private": true,
   "scripts": {
-    "test": "node tests/run.js",
+    "test": "node test/run.js",
     "start": "npx serve ."
   }
 }

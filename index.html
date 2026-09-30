@@ -55,8 +55,7 @@ Rules adapted from the Australian Red Cross <i>Essential First Aid Guide</i> and
 </footer>
 </main>
 <script>
-// ---------- Knowledge base ----------
-// def = conservative assumption used when the user answers "Not sure"
+
 const FACTS = {
   responsive:{q:"Does the person react when you tap their shoulders and speak loudly?",def:false,hint:"Any movement, sound or eye opening counts as yes."},
   breathing_normal:{q:"Is the person breathing normally?",def:false,hint:"Occasional gasping or snoring sounds are NOT normal breathing."},
@@ -68,7 +67,7 @@ const FACTS = {
   has_burn:{q:"Does the person have a burn?",def:true},
   burn_severe:{q:"Is the burn severe (bigger than the person's palm, deep, or on face, hands, genitals or over a joint)?",def:true}
 };
-// Rules in fixed priority order (most life-threatening first)
+
 const RULES = [
  {id:"R1",name:"Cardiac arrest",conds:[["responsive",false],["breathing_normal",false]],
   acts:["Call emergency services","Start chest compressions","Get an Automated External Defibrillator (AED)"],src:"Australian Red Cross Essential First Aid Guide, Cardiac Arrest"},
@@ -89,9 +88,8 @@ const RULES = [
 ];
 const label=(f,v)=>({responsive:v?"responsive":"not responsive",breathing_normal:v?"breathing normally":"not breathing normally",spinal_suspected:v?"spinal injury possible":"no suspected spinal injury",choking_signs:v?"choking signs":"no choking signs",cough_effective:v?"can cough":"cannot cough",severe_bleeding:v?"severe bleeding":"no severe bleeding",pressure_controls_bleeding:v?"pressure controls bleeding":"pressure does not control bleeding",has_burn:v?"has a burn":"no burn",burn_severe:v?"burn is severe":"burn is not severe"}[f]);
 
-// ---------- Inference engine ----------
-let facts={}, order=[];           // facts[name]={v:bool, assumed:bool}
-// Forward chaining: scan rules by priority. A rule is "fail", "ask" (needs a fact) or "fire".
+//Inference engine
+let facts={}, order=[];           
 function check(rule){
   for(const [f,val] of rule.conds){
     if(!(f in facts)) return {s:"ask",fact:f};
@@ -115,7 +113,7 @@ function answer(f,a){
 }
 function reset(){facts={};order=[];render();}
 
-// ---------- UI ----------
+//UI
 const app=document.getElementById("app");
 let showWhy=false;
 const esc=s=>s.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
